@@ -185,6 +185,7 @@ model2layers = {
 }
 
 
+# PAN where tokenization happen
 def sent_encode(tokenizer, sent):
     "Encoding as sentence based on the tokenizer"
     sent = sent.strip()
@@ -195,6 +196,7 @@ def sent_encode(tokenizer, sent):
         if LooseVersion(trans_version) >= LooseVersion("4.0.0"):
             return tokenizer.encode(
                 sent,
+                # YPAN
                 add_special_tokens=True,
                 add_prefix_space=True,
                 max_length=tokenizer.model_max_length,
@@ -415,7 +417,85 @@ def get_bert_embedding(all_sens, model, tokenizer, idf_dict, batch_size=-1, devi
     return total_embedding, mask, padded_idf
 
 
-def greedy_cos_idf(ref_embedding, ref_masks, ref_idf, hyp_embedding, hyp_masks, hyp_idf, all_layers=False):
+# def greedy_cos_idf(ref_embedding, ref_masks, ref_idf, hyp_embedding, hyp_masks, hyp_idf, all_layers=False):
+#     """
+#     Compute greedy matching based on cosine similarity.
+#
+#     Args:
+#         - :param: `ref_embedding` (torch.Tensor):
+#                    embeddings of reference sentences, BxKxd,
+#                    B: batch size, K: longest length, d: bert dimenison
+#         - :param: `ref_lens` (list of int): list of reference sentence length.
+#         - :param: `ref_masks` (torch.LongTensor): BxKxK, BERT attention mask for
+#                    reference sentences.
+#         - :param: `ref_idf` (torch.Tensor): BxK, idf score of each word
+#                    piece in the reference setence
+#         - :param: `hyp_embedding` (torch.Tensor):
+#                    embeddings of candidate sentences, BxKxd,
+#                    B: batch size, K: longest length, d: bert dimenison
+#         - :param: `hyp_lens` (list of int): list of candidate sentence length.
+#         - :param: `hyp_masks` (torch.LongTensor): BxKxK, BERT attention mask for
+#                    candidate sentences.
+#         - :param: `hyp_idf` (torch.Tensor): BxK, idf score of each word
+#                    piece in the candidate setence
+#     """
+#     ref_embedding.div_(torch.norm(ref_embedding, dim=-1).unsqueeze(-1))
+#     hyp_embedding.div_(torch.norm(hyp_embedding, dim=-1).unsqueeze(-1))
+#
+#     if all_layers:
+#         B, _, L, D = hyp_embedding.size()
+#         hyp_embedding = hyp_embedding.transpose(1, 2).transpose(0, 1).contiguous().view(L * B, hyp_embedding.size(1), D)
+#         ref_embedding = ref_embedding.transpose(1, 2).transpose(0, 1).contiguous().view(L * B, ref_embedding.size(1), D)
+#     batch_size = ref_embedding.size(0)
+#     sim = torch.bmm(hyp_embedding, ref_embedding.transpose(1, 2))
+#     masks = torch.bmm(hyp_masks.unsqueeze(2).float(), ref_masks.unsqueeze(1).float())
+#     if all_layers:
+#         masks = masks.unsqueeze(0).expand(L, -1, -1, -1).contiguous().view_as(sim)
+#     else:
+#         masks = masks.expand(batch_size, -1, -1).contiguous().view_as(sim)
+#
+#     masks = masks.float().to(sim.device)
+#     sim = sim * masks
+#
+#     word_precision = sim.max(dim=2)[0]
+#     word_recall = sim.max(dim=1)[0]
+#
+#     hyp_idf.div_(hyp_idf.sum(dim=1, keepdim=True))
+#     ref_idf.div_(ref_idf.sum(dim=1, keepdim=True))
+#     precision_scale = hyp_idf.to(word_precision.device)
+#     recall_scale = ref_idf.to(word_recall.device)
+#     if all_layers:
+#         precision_scale = precision_scale.unsqueeze(0).expand(L, B, -1).contiguous().view_as(word_precision)
+#         recall_scale = recall_scale.unsqueeze(0).expand(L, B, -1).contiguous().view_as(word_recall)
+#     P = (word_precision * precision_scale).sum(dim=1)
+#     R = (word_recall * recall_scale).sum(dim=1)
+#     F = 2 * P * R / (P + R)
+#
+#     hyp_zero_mask = hyp_masks.sum(dim=1).eq(2)
+#     ref_zero_mask = ref_masks.sum(dim=1).eq(2)
+#
+#     if all_layers:
+#         P = P.view(L, B)
+#         R = R.view(L, B)
+#         F = F.view(L, B)
+#
+#     if torch.any(hyp_zero_mask):
+#         print(
+#             "Warning: Empty candidate sentence detected; setting raw BERTscores to 0.", file=sys.stderr,
+#         )
+#         P = P.masked_fill(hyp_zero_mask, 0.0)
+#         R = R.masked_fill(hyp_zero_mask, 0.0)
+#
+#     if torch.any(ref_zero_mask):
+#         print("Warning: Empty reference sentence detected; setting raw BERTScores to 0.", file=sys.stderr)
+#         P = P.masked_fill(ref_zero_mask, 0.0)
+#         R = R.masked_fill(ref_zero_mask, 0.0)
+#
+#     F = F.masked_fill(torch.isnan(F), 0.0)
+#
+#     return P, R, F
+
+def greedy_cos_idf_alignment(ref_embedding, ref_masks, ref_idf, hyp_embedding, hyp_masks, hyp_idf,alignment=None,all_layers=False):
     """
     Compute greedy matching based on cosine similarity.
 
@@ -427,7 +507,7 @@ def greedy_cos_idf(ref_embedding, ref_masks, ref_idf, hyp_embedding, hyp_masks, 
         - :param: `ref_masks` (torch.LongTensor): BxKxK, BERT attention mask for
                    reference sentences.
         - :param: `ref_idf` (torch.Tensor): BxK, idf score of each word
-                   piece in the reference setence
+                   piece in the reference sentence
         - :param: `hyp_embedding` (torch.Tensor):
                    embeddings of candidate sentences, BxKxd,
                    B: batch size, K: longest length, d: bert dimenison
@@ -455,8 +535,32 @@ def greedy_cos_idf(ref_embedding, ref_masks, ref_idf, hyp_embedding, hyp_masks, 
     masks = masks.float().to(sim.device)
     sim = sim * masks
 
-    word_precision = sim.max(dim=2)[0]
-    word_recall = sim.max(dim=1)[0]
+    # YPAN test
+    alignment=[[0, 1, 2, 3, 4, 5, 6, 8, 6, 5, 0, 8, 10, 7, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 3, 7, 11, 11, 22, 7, 14, 9, 7, 12, 14, 15, 16, 10, 1, 19, 15, 21, 8, 24, 5, 6, 4, 12, 9, 0, 1, 4, 13, 18, 2, 2, 20, 21, 22, 23, 2, 15, 16, 17, 23, 19, 20, 21, 17, 18, 18, 13, 13, 3, 4, 14, 9, 10, 24],
+        [0, 1, 2, 3, 4, 5, 6, 13, 7, 35, 12, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27]
+    ]
+
+    if not alignment:
+        word_precision = sim.max(dim=2)[0]
+        word_recall = sim.max(dim=1)[0]
+    else:
+        src_token_nums = sim.size()[1]
+        tgt_token_nums = sim.size()[2]
+        # precision vector
+        word_precision = torch.zeros(1,src_token_nums)
+        word_precision[0,0] = max(sim[0][0])
+        word_precision[0,src_token_nums-1] = max(sim[0][src_token_nums-1])
+        # loop of src->tgt alignment
+        for i,v in enumerate(alignment[0]):
+            word_precision[0][i + 1] = sim[0][i, v + 1]
+
+        # recall vector
+        word_recall = torch.zeros(1,tgt_token_nums)
+        word_recall[0,0] = max(sim[0][:,0])
+        word_recall[0,tgt_token_nums-1] = max(sim[0][:,-1])
+        # loop of tgt->src alignment
+        for i,v in enumerate(alignment[1]):
+            word_recall[0][i + 1] = sim[0][v+1,i+1]
 
     hyp_idf.div_(hyp_idf.sum(dim=1, keepdim=True))
     ref_idf.div_(ref_idf.sum(dim=1, keepdim=True))
@@ -493,9 +597,8 @@ def greedy_cos_idf(ref_embedding, ref_masks, ref_idf, hyp_embedding, hyp_masks, 
 
     return P, R, F
 
-
 def bert_cos_score_idf(
-    model, refs, hyps, tokenizer, idf_dict, verbose=False, batch_size=64, device="cuda:0", all_layers=False,
+    model, refs, hyps, tokenizer, idf_dict, verbose=False, batch_size=64, device="cuda:0", all_layers=False,alignment=None
 ):
     """
     Compute BERTScore.
@@ -568,7 +671,7 @@ def bert_cos_score_idf(
             ref_stats = pad_batch_stats(batch_refs, stats_dict, device)
             hyp_stats = pad_batch_stats(batch_hyps, stats_dict, device)
 
-            P, R, F1 = greedy_cos_idf(*ref_stats, *hyp_stats, all_layers)
+            P, R, F1 = greedy_cos_idf_alignment(*ref_stats, *hyp_stats, all_layers,alignment)
             preds.append(torch.stack((P, R, F1), dim=-1).cpu())
     preds = torch.cat(preds, dim=1 if all_layers else 0)
     return preds

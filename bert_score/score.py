@@ -9,7 +9,6 @@ import numpy as np
 import pandas as pd
 
 from collections import defaultdict
-from transformers import AutoTokenizer
 
 from .utils import (
     get_model,
@@ -43,7 +42,8 @@ def score(
     return_hash=False,
     rescale_with_baseline=False,
     baseline_path=None,
-    use_fast_tokenizer=False
+    use_fast_tokenizer=False,
+    alignment = None
 ):
     """
     BERTScore metric.
@@ -138,6 +138,7 @@ def score(
         device=device,
         batch_size=batch_size,
         all_layers=all_layers,
+        alignment=alignment
     ).cpu()
 
     if ref_group_boundaries is not None:
