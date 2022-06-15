@@ -43,7 +43,8 @@ def score(
     rescale_with_baseline=False,
     baseline_path=None,
     use_fast_tokenizer=False,
-    alignment = None
+    alignment = None,
+    return_alignments = False
 ):
     """
     BERTScore metric.
@@ -128,18 +129,36 @@ def score(
     if verbose:
         print("calculating scores...")
     start = time.perf_counter()
-    all_preds = bert_cos_score_idf(
-        model,
-        refs,
-        cands,
-        tokenizer,
-        idf_dict,
-        verbose=verbose,
-        device=device,
-        batch_size=batch_size,
-        all_layers=all_layers,
-        alignment=alignment
-    ).cpu()
+    # YPan added if return_alignments to split the tensor and alignments
+    if return_alignments:
+        all_preds, alignments = bert_cos_score_idf(
+            model,
+            refs,
+            cands,
+            tokenizer,
+            idf_dict,
+            verbose=verbose,
+            device=device,
+            batch_size=batch_size,
+            all_layers=all_layers,
+            alignment=alignment,
+            return_alignments=return_alignments
+        )
+        all_preds = all_preds.cpu()
+    else:
+        all_preds = bert_cos_score_idf(
+            model,
+            refs,
+            cands,
+            tokenizer,
+            idf_dict,
+            verbose=verbose,
+            device=device,
+            batch_size=batch_size,
+            all_layers=all_layers,
+            alignment=alignment,
+            return_alignments=return_alignments
+        ).cpu()
 
     if ref_group_boundaries is not None:
         max_preds = []
@@ -178,6 +197,8 @@ def score(
                          use_fast_tokenizer=use_fast_tokenizer),
             ]
         )
+    if return_alignments:
+        return [out,alignments]
 
     return out
 
