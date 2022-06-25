@@ -184,7 +184,7 @@ model2layers = {
     'khalidalt/DeBERTa-v3-large-mnli': 18, # 0.7428756686018376
 }
 
-
+# YPan tokenization
 def sent_encode(tokenizer, sent):
     "Encoding as sentence based on the tokenizer"
     sent = sent.strip()
@@ -195,7 +195,7 @@ def sent_encode(tokenizer, sent):
         if LooseVersion(trans_version) >= LooseVersion("4.0.0"):
             return tokenizer.encode(
                 sent,
-                # YPAN
+                # YPan tokenization
                 add_special_tokens=True,
                 add_prefix_space=True,
                 max_length=tokenizer.model_max_length,
@@ -440,6 +440,7 @@ def greedy_cos_idf(ref_embedding, ref_masks, ref_idf, hyp_embedding, hyp_masks, 
                    piece in the candidate setence
        - - :param: `return_alignment` (bool): return alignment list
     """
+    # YPan test
     ref_embedding.div_(torch.norm(ref_embedding, dim=-1).unsqueeze(-1))
     hyp_embedding.div_(torch.norm(hyp_embedding, dim=-1).unsqueeze(-1))
 
